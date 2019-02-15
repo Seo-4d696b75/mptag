@@ -16,7 +16,7 @@
 
 // select encoding of text-based data into stdout or from stdin
 // 1:UTF-8 0:ISO_8859_1(ShiftJIS also accecpted)
-#define ENCODING_UTF8 0
+#define DEFAULT_ENCODING_UTF8 0
 
 #define LITTLE_ENDIAN 1
 
@@ -35,7 +35,7 @@ const char ENCODING_ISO_8859_1 = (char)ISO_8859_1;
 const char ENCODING_UTF_16_BOM = (char)UTF_16_BOM;
 const char ENCODING_UTF_16_BE = (char)UTF_16_BE;
 const char ENCODING_UTF_8 = (char)UTF_8;
-#if ENCODING_UTF8
+#if DEFAULT_ENCODING_UTF8
 const char ENCODING_DEFAULT = (char)UTF_8;
 #else
 const char ENCODING_DEFAULT = (char)ISO_8859_1;
@@ -48,6 +48,10 @@ const char ENCODING_DEFAULT = (char)ISO_8859_1;
 #define FLAG_DES_NO_NULL_SUFFIX 0b10
 int convert_text(char* des, int des_size, const char* src, int src_size,
                  char des_encoding, char src_encoding, int flags);
+
+
+#define convert_str(des,des_size,src,encoding) convert_text(des,des_size,src,0,ENCODING_DEFAULT,encoding,0)
+				 
 
 int is_text_type(const char* id) {
     static char* data_array =
@@ -143,7 +147,7 @@ int check_encoding(char encoding, TagFrame* frame) {
         frame->encoding = ENCODING_UTF_16_BE;
         frame->encoding_byte = 2;
     } else if (encoding == 3) {
-        frame->encoding = ENCODING_UTF8;
+        frame->encoding = ENCODING_UTF_8;
         frame->encoding_byte = 1;
     } else {
         fprintf(stderr,
@@ -499,8 +503,8 @@ void swap_byte(char* str, int size) {
     }
 }
 
+/*
 int convert_str(char* des, int des_size, char* src, char encoding) {
-    // TODO
     if (des_size < 0) return 0;
     const int byte =
         (encoding == ENCODING_UTF_16_BE || encoding == ENCODING_UTF_16_BOM) ? 2
@@ -593,7 +597,7 @@ int convert_str(char* des, int des_size, char* src, char encoding) {
 #endif
     free(buf);
     return result;
-}
+}*/
 
 char* get_encoding_str(char encoding) {
     static char* str0 = "ISO_8859_1";
@@ -760,7 +764,7 @@ int str2sjis(char* des, int des_size, const char* src, int size,
             result = UTF16toSJIS(des, des_size, src, size);
             break;
         case UTF_8:
-            return UTF16toSJIS(des, des_size, src, size);
+            return UTF8toSJIS(des, des_size, src, size);
         case ISO_8859_1:
             if (des == NULL) {
                 return size;
@@ -848,14 +852,15 @@ int convert_text(char* des, int des_size, const char* src, int src_size,
     if (src == NULL || des_size < 0) return 0;
     int has_src_null = (flags & FLAG_SRC_NO_NULL_SUFFIX) == 0;
     int has_des_null = (flags & FLAG_DES_NO_NULL_SUFFIX) == 0;
-    int byte = BYTE_SIZE(src_encoding);
-    if (des != NULL && has_des_null && des_size < byte) return 0;
+	const int src_byte = BYTE_SIZE(src_encoding);
+	const int des_byte = BYTE_SIZE(des_encoding);
+    if (des != NULL && has_des_null && des_size < des_byte) return 0;
     int size;
     if (has_src_null) {
-        size = byte * str_length(src, byte);
+        size = src_byte * str_length(src, src_byte);
     } else {
         size = src_size;
-        if (size <= 0 || size%byte != 0) return 0;
+        if (size <= 0 || size%src_byte != 0) return 0;
     }
     int result = 0;
     if (des == NULL || des_size == 0) {
@@ -882,20 +887,19 @@ int convert_text(char* des, int des_size, const char* src, int src_size,
         case NONE:
             return 0;
 	}
-	byte = BYTE_SIZE(des_encoding);
     if (des == NULL) {
-        if (has_des_null) result += byte;
+        if (has_des_null) result += des_byte;
         return result;
     }
     if (has_des_null) {
-        if (result + byte > des_size) result = des_size - 2;
-        if (byte == 1) {
+        if (result + des_byte > des_size) result = des_size - 2;
+        if (des_byte == 1) {
             des[result] = '\0';
         } else {
             des[result] = '\0';
             des[result + 1] = '\0';
         }
-        result += byte;
+        result += des_byte;
     }
     return result;
 }
@@ -1051,7 +1055,7 @@ int write_tag(TagContaner* container, FILE* des) {
     return true;
 }
 
-int set_text(TagFrame* frame, const char* id, DataType type, char src_encoding,
+int set_text(TagFrame* frame, const char* id, DataType type, char text_encoding,
              char des_encoding, const char* language, const char* description,
              const char* text) {
     memcpy(frame->frame_id, id, 5);
@@ -1071,16 +1075,16 @@ int set_text(TagFrame* frame, const char* id, DataType type, char src_encoding,
 	int size;
     if (description != NULL) {
         size = convert_text(NULL, 0, description, 0, des_encoding,
-                                src_encoding, 0);
+                                ENCODING_DEFAULT, 0);
         if (size == 0) return false;
         frame->description = (char*)malloc(sizeof(char) * size);
         if ( size != convert_text(frame->description, size, description, 0, des_encoding,
-                                  src_encoding, 0)) return false;
+                                  ENCODING_DEFAULT, 0)) return false;
 	}
-	size = convert_text(NULL, 0, text, 0, des_encoding, src_encoding, 0);
+	size = convert_text(NULL, 0, text, 0, des_encoding, text_encoding, 0);
 	if ( size == 0 ) return false;
 	frame->text = (char*)malloc(sizeof(char)*size);
-	if ( size != convert_text(frame->text, size, text, 0, des_encoding, src_encoding, 0)) return false;
+	if ( size != convert_text(frame->text, size, text, 0, des_encoding, text_encoding, 0)) return false;
 	return true;
 }
 
@@ -1124,7 +1128,7 @@ int set_binary(TagFrame* frame, const char* id, FILE* data){
 	return true;
 }
 
-int set_pricture(TagFrame* frame, char src_encoding, char des_encoding,
+int set_picture(TagFrame* frame, char des_encoding,
                  const char* format, char type, const char* description,
                  FILE* data){
 
@@ -1141,10 +1145,10 @@ int set_pricture(TagFrame* frame, char src_encoding, char des_encoding,
 	strcpy(frame->data_format, format);
 	frame->encoding = des_encoding;
 	frame->encoding_byte = BYTE_SIZE(des_encoding);
-	int size = convert_text(NULL, 0, description, 0, des_encoding, src_encoding, 0);
+	int size = convert_text(NULL, 0, description, 0, des_encoding, ENCODING_DEFAULT, 0);
 	if ( size == 0 ) return false;
 	frame->description = (char*)malloc(sizeof(char)*size);
-	if ( size != convert_text(frame->description, size, description, 0, des_encoding, src_encoding, 0)) return false;
+	if ( size != convert_text(frame->description, size, description, 0, des_encoding, ENCODING_DEFAULT, 0)) return false;
 	char* buf = (char*)malloc(sizeof(char)*512);
 	size = 0;
 	while ( true ){

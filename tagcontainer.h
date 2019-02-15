@@ -93,13 +93,13 @@ int extract_data(TagFrame* frame, FILE* des, char encoding);
 
 int get_raw_frame(FILE* des, TagFrame* src, char version);
 
-int set_text(TagFrame* frame, const char* id, DataType type, char src_encoding, char des_encoding, const char* language, const char* description, const char* text);
+int set_text(TagFrame* frame, const char* id, DataType type, char text_encoding, char des_encoding, const char* language, const char* description, const char* text);
 
 int set_URL(TagFrame *frame, const char* id, const char* url);
 
 int set_binary(TagFrame* frame, const char* id, FILE* data);
 
-int set_pricture(TagFrame *frame, char src_encoding, char des_encoding, const char* format,
+int set_picture(TagFrame *frame, char des_encoding, const char* format,
                   char type, const char* description, FILE* data);
 
 int write_tag(TagContaner* container, FILE* des);

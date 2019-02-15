@@ -1,6 +1,6 @@
 /**
  * mptag
- * 
+ *
  * @author Seo-4d696b75
  * @version 2019-01-09
  */
@@ -125,7 +125,8 @@ int is_url_text(const char* str);
 void release_arg(Argument* arg);
 void show_one_frame(TagContaner* container, const char* id, FILE* out,
                     FILE* des);
-void show_all_frame(TagContaner* container);
+void show_all_frame(TagContaner* container, Argument* arg, int arg_size,
+                    FILE* out);
 int set_one_frame(TagContaner* container, Argument* arg, FILE* out);
 void execute(Argument* list, int size, const char* file);
 void remove_one_frame(TagContaner* container, const char* id, FILE* out);
@@ -179,6 +180,8 @@ int main(int argc, char** argv) {
         value = argv[optind];
     }
 
+    if (argc == 2) flag_show_all_frame = true;
+
     if (!opt_parse_err) execute(arg_list, arg_size, argv[1]);
 
     for (int i = 0; i < arg_size; i++) {
@@ -188,75 +191,116 @@ int main(int argc, char** argv) {
     return 0;
 }
 
+int check_version(TagContaner* container, Argument* arg, int size) {
+    // check version
+    if (version_output <= 0) {
+		// if not specified, current version is chosen
+		version_output = container->version;
+		if ( version_output == TAG_VERTION_ID3v2_3 ){
+			for ( Argument* a = arg ; a<arg+size ; a++ ){
+				if ( a->encoding == ENCODING_UTF_8 || a->encoding == ENCODING_UTF_16_BE ){
+					fprintf(
+						stderr,
+						"Warning : Encoding UTF-8 UTF-16BE only supported in ID3v2.4\n");
+					version_output = TAG_VERTION_ID3v2_4;
+					break;
+				}
+			}
+		}
+    }
+    if (container->version != version_output) {
+        if (version_output == TAG_VERTION_ID3v2_3) {
+            TagFrame* frame = container->frame;
+            while (frame != NULL) {
+                if (frame->encoding == ENCODING_UTF_8 ||
+                    frame->encoding == ENCODING_UTF_16_BE) {
+                    fprintf(stderr,
+                            "Error : UTF-8 UTF-16BE only supported in ID3v2.4 at ID=%s\n",
+                            frame->frame_id);
+                    return false;
+                }
+                frame = frame->next;
+            }
+        }
+        fprintf(stderr, "change version ID3v2.%d -> ID3v2.%d\n",
+                container->version, version_output);
+
+        container->version = version_output;
+        container->header_version[0] = version_output;
+        container->header_version[1] = (char)0;
+        flag_write_file = true;
+    }
+    return true;
+}
+
 void execute(Argument* list, int size, const char* file) {
     TagContaner* container = (TagContaner*)malloc(sizeof(TagContaner));
     if (container == NULL) return;
     if (initialize_container(container, file)) {
-		
-        // show all the flags if flag set
-        if (flag_show_all_frame) show_all_frame(container);
-        // output stream if any
-        FILE* des = NULL;
-        if (flag_extract_data) {
-            if (strcmp(extract_data_des, "-") == 0) {
-                // for windows
-                setmode(fileno(stdout), O_BINARY);
-                des = stdout;
-            } else {
-                des = fopen(extract_data_des, "wb");
+        if (check_version(container, list, size)) {
+            // output stream if any
+            FILE* des = NULL;
+            if (flag_extract_data) {
+                if (strcmp(extract_data_des, "-") == 0) {
+                    // for windows
+                    setmode(fileno(stdout), O_BINARY);
+                    des = stdout;
+                } else {
+                    des = fopen(extract_data_des, "wb");
+                }
+                if (des == NULL) {
+                    fprintf(stderr, "Error : fail to open file \"%s\"\n",
+                            extract_data_des);
+					release_container(container);
+					free(container);
+					return;
+                }
             }
-            if (des == NULL) {
-                fprintf(stderr, "Error : fail to open file \"%s\"\n",
-                        extract_data_des);
-                flag_extract_data = false;
-                flag_write_file = false;
-            }
-        }
 
-		FILE* out = des == stdout ? stderr : stdout;
-		// check version
-		if ( version_output > 0 ){
-			if ( version_output != container->version ){
-				fprintf(out, "change version ID3v2.%d -> ID3v2.%d\n", container->version, version_output);
-				container->version = version_output;
-				flag_write_file = true;
-			}
-		}else{
-			version_output = container->version;
+            FILE* out = des == stdout ? stderr : stdout;
+
+            // header summary
+            fprintf(out, "ID3v2.%d.%d frame cnt:%d size:%d\n",
+                    container->header_version[0], container->header_version[1],
+                    container->frames_cnt, container->frames_size);
+            // show all the flags if flag set
+            if (flag_show_all_frame) show_all_frame(container, list, size, out);
+
+            // iterate argument
+            for (int i = 0; i < size; i++) {
+                Argument* arg = list + i;
+                if (arg->action == ACTION_SHOW_FRAME) {
+                    show_one_frame(container, arg->frame_id, out, des);
+                } else if (arg->action == ACTION_SET_FRAME) {
+                    if (!set_one_frame(container, arg, out)) {
+                        flag_write_file = false;
+                        break;
+                    }
+                } else if (arg->action == ACTION_DELETE_FRAME) {
+                    remove_one_frame(container, arg->frame_id, out);
+                }
+            }
+
+            if (flag_write_file) {
+                if (des == NULL) {
+                    des = fopen("temp.mp3temp", "wb");
+                }
+                if (des != NULL && write_tag(container, des)) {
+                    fprintf(stderr, "success to write file.\n");
+                } else {
+                    fprintf(stderr, "fail to write file.\n");
+                    flag_write_file = false;
+                }
+            }
+            if (des != NULL && des != stdout) fclose(des);
+            release_container(container);
+            if (flag_write_file && !flag_extract_data) {
+                remove(file);
+                rename("temp.mp3temp", file);
+            }
+        }else{
+			release_container(container);
 		}
-
-        // iterate argument
-        for (int i = 0; i < size; i++) {
-            Argument* arg = list + i;
-            if (arg->action == ACTION_SHOW_FRAME) {
-                show_one_frame(container, arg->frame_id, out, des);
-            } else if (arg->action == ACTION_SET_FRAME) {
-				if ( !set_one_frame(container, arg, out) ){
-					flag_write_file = false;
-					break;
-				}
-            } else if (arg->action == ACTION_DELETE_FRAME) {
-                remove_one_frame(container, arg->frame_id, out);
-            }
-        }
-
-        if (flag_write_file) {
-            if (des == NULL) {
-                des = fopen("temp.mp3temp", "wb");
-            }
-            if (des != NULL && write_tag(container, des)) {
-                fprintf(stderr, "success to write file.\n");
-            } else {
-                fprintf(stderr, "fail to write file.\n");
-                flag_write_file = false;
-            }
-        }
-        if (des != NULL && des != stdout) fclose(des);
-        release_container(container);
-        if (flag_write_file && !flag_extract_data) {
-            remove(file);
-            rename("temp.mp3temp", file);
-        }
     }
     free(container);
 }
@@ -292,31 +336,32 @@ int set_one_frame(TagContaner* container, Argument* arg, FILE* out) {
     while (previous->next != NULL) previous = previous->next;
     TagFrame* frame = (TagFrame*)malloc(sizeof(TagFrame));
     if (frame == NULL) return false;
-	int result = false;
+    int result = false;
     FILE* data = NULL;
     switch (arg->data_type) {
         case TYPE_TEXT_EN:
         case TYPE_TEXT_EN_DES:
         case TYPE_TEXT_EN_LAN:
-		case TYPE_TEXT_EN_LAN_DES:
-			// stdin
-			if ( strcmp(arg->text, "-") == 0 ){
-				setmode(fileno(stdin), O_BINARY);
+        case TYPE_TEXT_EN_LAN_DES:
+            // stdin
+            if (strcmp(arg->text, "-") == 0) {
+                setmode(fileno(stdin), O_BINARY);
                 data = stdin;
-			}else{
-				data = fopen(arg->text, "rb");
-			}
-			if ( data != NULL ){
-				struct stat s;
-				if ( fstat(fileno(data), &s) != 0) break;
-				long size = s.st_size;
-				arg->text = (char*)malloc(sizeof(char)*(size+3));
-				if ( arg->text == NULL ) break;
-				fread(arg->text, 1, size, data);
-				memset(arg->text+size, 0, 3);
-			}
-            result = set_text(frame, arg->frame_id, arg->data_type, src_encoding, arg->encoding,
-							  arg->data_format, arg->description, arg->text);
+            } else {
+                data = fopen(arg->text, "rb");
+            }
+            if (data != NULL) {
+                struct stat s;
+                if (fstat(fileno(data), &s) != 0) break;
+                long size = s.st_size;
+                arg->text = (char*)malloc(sizeof(char) * (size + 3));
+                if (arg->text == NULL) break;
+                fread(arg->text, 1, size, data);
+                memset(arg->text + size, 0, 3);
+            }
+            result = set_text(frame, arg->frame_id, arg->data_type,
+                              src_encoding, arg->encoding, arg->data_format,
+                              arg->description, arg->text);
             break;
         case TYPE_PICTURE:
             if (strcmp(arg->data_file, "-") == 0) {
@@ -329,9 +374,8 @@ int set_one_frame(TagContaner* container, Argument* arg, FILE* out) {
                 fprintf(stderr, "Error : fail to open picture file\n");
                 break;
             }
-            result = set_pricture(frame, src_encoding, arg->encoding,
-                                  arg->data_format, arg->image_type,
-                                  arg->description, data);
+            result = set_picture(frame, arg->encoding, arg->data_format,
+                                 arg->image_type, arg->description, data);
             break;
         case TYPE_BINARY:
             if (strcmp(arg->data_file, "-") == 0) {
@@ -343,32 +387,32 @@ int set_one_frame(TagContaner* container, Argument* arg, FILE* out) {
             if (data == NULL) {
                 fprintf(stderr, "Error : fail to open data file\n");
                 break;
-			}
-			result = set_binary(frame, arg->frame_id, data);
-			break;
-		case TYPE_URL:
-			result = set_URL(frame, arg->frame_id, arg->text);
-			break;
-	}
-	if ( data != NULL && data != stdin ) fclose(data);
-	if ( result ){
-		fprintf(out, "success to set frame.\n");
-		previous->next = frame;
-		frame->next = NULL;
-		show_frame(frame, out);
-		return true;
-	}else{
-		fprintf(out, "Error : fail to set frame.\n");
-		free(frame);
-		return false;
-	}
+            }
+            result = set_binary(frame, arg->frame_id, data);
+            break;
+        case TYPE_URL:
+            result = set_URL(frame, arg->frame_id, arg->text);
+            break;
+    }
+    if (data != NULL && data != stdin) fclose(data);
+    if (result) {
+        fprintf(out, "success to set frame.\n");
+        previous->next = frame;
+        frame->next = NULL;
+        show_frame(frame, out);
+        return true;
+    } else {
+        fprintf(out, "Error : fail to set frame.\n");
+        free(frame);
+        return false;
+    }
 }
 
 void remove_one_frame(TagContaner* container, const char* id, FILE* out) {
     int cnt = remove_frame(container, id);
     if (cnt == 0) {
-		fprintf(out, "Error : frame not found > ID=%s\n", id);
-		flag_write_file = false;
+        fprintf(out, "Error : frame not found > ID=%s\n", id);
+        flag_write_file = false;
     } else if (cnt == 1) {
         fprintf(out, "  remove frame > ID=%s\n", id);
     } else if (cnt > 1) {
@@ -395,11 +439,18 @@ void show_one_frame(TagContaner* container, const char* id, FILE* out,
     fprintf(stderr, "Error : frame not found ID=%s\n", id);
 }
 
-void show_all_frame(TagContaner* container) {
+void show_all_frame(TagContaner* container, Argument* arg, int arg_size,
+                    FILE* out) {
     TagFrame* frame = container->frame;
     while (frame != NULL) {
-        show_frame(frame, stdout);
+        show_frame(frame, out);
         frame = frame->next;
+    }
+    for (int i = 0; i < arg_size; i++) {
+        Argument* a = arg + i;
+        if (a->action == ACTION_SHOW_FRAME) {
+            a->action = ACTION_UNABLE;
+        }
     }
 }
 
@@ -587,10 +638,14 @@ char parse_encoding(const char* value) {
         if (strcmp(value, *p) == 0) return ENCODING_UTF_16_BOM;
     }
     for (p = utf16be; p < utf16be + 4; p++) {
-        if (strcmp(value, *p) == 0) return ENCODING_UTF_16_BE;
+        if (strcmp(value, *p) == 0) {
+            return ENCODING_UTF_16_BE;
+        }
     }
     for (p = utf8; p < utf8 + 4; p++) {
-        if (strcmp(value, *p) == 0) return ENCODING_UTF_8;
+        if (strcmp(value, *p) == 0) {
+            return ENCODING_UTF_8;
+        }
     }
     fprintf(stderr, "Error : fail to parse encoding '%s'\n", value);
     return ENCODING_NONE;
@@ -609,7 +664,7 @@ int parse_opt_picture(char* pt, Argument* arg) {
     arg->data_file = pt;
     // detect iamge type (MIME type)
     pt = strtok(NULL, ":");
-    if (pt == NULL || strlen(pt) == 0 ) {
+    if (pt == NULL || strlen(pt) == 0) {
         if (strcmp(arg->data_file, "-") == 0) {
             fprintf(stderr,
                     "Error : image file set stdin, but MIME type unknown.\n");
@@ -670,28 +725,35 @@ int parse_opt_text(char* pt, Argument* arg, int has_desc, int has_language) {
     // description
     if (has_desc) {
         pt = strtok(NULL, ":");
-        if (pt == NULL) return true;
-        arg->description = pt;
+        if (pt == NULL) {
+            arg->description = "";
+        } else {
+            arg->description = pt;
+        }
     }
     // language
     if (has_language) {
         pt = strtok(NULL, ":");
-        if (pt == NULL){
-			arg->data_format = "eng";
-		}else{
-			if (strlen(pt) != 3) {
-				fprintf(stderr, "Error : invalid language symbol found '%s'\n", pt);
-				return false;
-			}
-			arg->data_format = pt;
-		}
+        if (pt == NULL) {
+            arg->data_format = "eng";
+        } else {
+            if (strlen(pt) != 3) {
+                fprintf(stderr, "Error : invalid language symbol found '%s'\n",
+                        pt);
+                return false;
+            }
+            arg->data_format = pt;
+        }
     }
     // encoding
     pt = strtok(NULL, ":");
-    if (pt == NULL) return true;
-    char e = parse_encoding(pt);
-    if (e == ENCODING_NONE) return false;
-    arg->encoding = e;
+    if (pt == NULL) {
+        arg->encoding = ENCODING_UTF_16_BOM;
+    } else {
+        char e = parse_encoding(pt);
+        if (e == ENCODING_NONE) return false;
+        arg->encoding = e;
+    }
     return true;
 }
 

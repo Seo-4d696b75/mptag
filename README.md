@@ -89,8 +89,8 @@ and each value is separated by symbol ":". Supported encoding is shown in anothe
 |Encoding|value||
 |:-:|:--|:--|
 |ISO-8859-1|0|Shift-JIS also accepted as this value|
-|UTF-16(BOM)|1||
-|UTF-16BE|2|ID3v2.4 only|
+|UTF-16(BOM)|1|with BOM(BE/LE)|
+|UTF-16BE|2|ID3v2.4 only  with no BOM|
 |UTF-8|3|ID3v2.4 only|
   
 - Encoding of Shift-JIS is not originally defiend in ID3v2, but 

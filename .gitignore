@@ -3,4 +3,6 @@
 *.pem
 *.mp3
 *.txt
+*.png
+*.jpg
 music/*
