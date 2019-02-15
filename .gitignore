@@ -1,0 +1,6 @@
+*.exe
+*.o
+*.pem
+*.mp3
+*.txt
+music/*
