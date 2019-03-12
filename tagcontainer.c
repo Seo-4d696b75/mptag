@@ -207,10 +207,11 @@ int read_text_frame(TagFrame* frame, char* buf, int size, int has_language,
         frame->data_format[3] = '\0';
         memcpy(frame->data_format, buf + offset, 3);
         if (strlen(frame->data_format) != 3) {
+			//規約違反のファイル多数存在するので許容せざるを得ない
             fprintf(stderr,
-                    "invalid language value found : %s at frame(ID=%s)\n",
+                    "Warning > invalid language value found : \"%s\" at frame(ID=%s)\n",
                     frame->data_format, frame->frame_id);
-            return false;
+            //return false;
         }
         offset += 3;
     }

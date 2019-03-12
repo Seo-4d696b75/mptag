@@ -27,7 +27,7 @@ and they can also be specified with its alias.
 |-y |show year/date info|
 |-T |show track info|
 |-o {filePath}|extract frame data(text, picture, binary) to specified file.|
-|-e {Encoding}|set encoding of text data from a file or stdin.|
+|-e {Encoding}|set encoding of text data from a file/stdin or text data into a file/stdout.|
 |-d {frame}|delete specified frams(s)|
 |-v {version}|set tag version. version value must be either 3 or 4|
 |--{frame}|show specified frame.|
@@ -95,5 +95,29 @@ and each value is separated by symbol ":". Supported encoding is shown in anothe
   
 - Encoding of Shift-JIS is not originally defiend in ID3v2, but 
 multi-byte letters is encoded with Shift-JIS in some case.
+
+# Example  
+Some useful examples are shown here.  
+
+## Show Frame
+show all the frames embedded in file 'hoge.mp3'  
+`mptag hoge.mp3 -l`  
+show frames about its artist and title  
+`mptag hoge.mp3 -a -t` or `mptag hoge.mp3 --artist --title`  
+you can also specify frame with its ID directly  
+`mptag hoge.mp3 --TPE1 --TIT2`  
+
+## Extract Data
+you can extract embedded text, picture, binary data to specified file.  
+extract lyrics data to file 'text.txt'  
+`mptag hoge.mp3 --lyrics -o text.txt`  
+extract album image to file 'image.jpg'  
+`mptag hoge.mp3 -p -o image.jpg`  
+you can also extract data into stdout.  
+`mptag hoge.mp3 --lyrics -o - > text.txt`  
+`mptag hoge.mp3 -p -o - > image.jpg`
+
+
+## Set Frame
 
 
